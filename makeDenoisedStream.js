@@ -12,6 +12,8 @@ const STATE_SIZE = 45304;
 
 export async function createDenoisedTrack(inputAudioTrack) {
   if (!inputAudioTrack) throw new Error("No audio track provided.");
+  console.log("replacing denoised track");
+  
 
   if (!window.ort) {
     await new Promise((resolve) => {
@@ -34,14 +36,17 @@ export async function createDenoisedTrack(inputAudioTrack) {
 
   // Create the AudioWorkletNodes
   const denoiseNode = new AudioWorkletNode(audioContext, "denoise-processor");
-  const playerNode = new AudioWorkletNode(audioContext, "player-processor");
+  const playerNode = new AudioWorkletNode(audioContext, "player-processor", {
+    outputChannelCount: [2], // Mono output
+  });
 
-  // Create a MediaStreamSource from the input audio track
+  // Create a MediaStreamSource from the input audiUDo track
   const source = audioContext.createMediaStreamSource(new MediaStream([inputAudioTrack]));
   source.connect(denoiseNode); // Connect the source to the denoise node
 
+
   // Create a MediaStreamDestination to output the processed audio
-  const outputDest = audioContext.createMediaStreamDestination();
+  const outputDest = audioContext.createMediaStreamDestination()
   playerNode.connect(outputDest); // Connect the player node to the output destination
 
   // Setup onnxruntime session
@@ -51,6 +56,7 @@ export async function createDenoisedTrack(inputAudioTrack) {
 
   const inputBuffer = [];
   denoiseNode.port.onmessage = async (event) => {
+    // console.log("m");
     inputBuffer.push(...event.data);
     while (inputBuffer.length >= 480) {
       const frame = inputBuffer.splice(0, 480);
@@ -80,16 +86,21 @@ export async function createDenoisedTrack(inputAudioTrack) {
     }
   };
 
-
+  
+  
   const outputAudioTrack = outputDest.stream.getAudioTracks()[0];
+  console.log(outputAudioTrack);
 
-  inputAudioTrack.addEventListener("ended", () => {
-    outputAudioTrack.stop();
+  outputAudioTrack.addEventListener("ended", () => {
+    inputAudioTrack.stop();
   });
+
   return outputAudioTrack;
 }
 
 export async function makeDenoisedStream(inputStream) {
+  console.log("making denoised stream");
+
   if (!inputStream || !inputStream.getAudioTracks().length) {
     throw new Error("Input stream must contain an audio track.");
   }
@@ -97,7 +108,6 @@ export async function makeDenoisedStream(inputStream) {
   let inputAudioTrack = inputStream.getAudioTracks()[0];
   let denoisedTrack = await createDenoisedTrack(inputAudioTrack);
 
-  // replace the original audio track with the denoised one
-  inputStream.removeTrack(inputAudioTrack);
-  inputStream.addTrack(denoisedTrack);
+  let newStream = new MediaStream([...inputStream.getVideoTracks(), denoisedTrack]);
+  return newStream;
 }
